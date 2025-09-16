@@ -38,16 +38,16 @@ var serveCmd = &cobra.Command{
 			return err
 		}
 
-		serverName := "kumalab-mcp-server"
-		serverTitle := "KumaLab.ai MCP Server"
+		serverName := "kumolab-mcp-server"
+		serverTitle := "KumoLab.ai MCP Server"
 		version := "v0.0.1"
 
-		if openapiSpec.Info != nil && openapiSpec.Info.Title != "" {
-			serverTitle = openapiSpec.Info.Title
+		if openapiSpec.GetInfo().Title != "" {
+			serverTitle = openapiSpec.GetInfo().Title
 		}
 
-		if openapiSpec != nil && openapiSpec.Info.Version != "" {
-			version = openapiSpec.Info.Version
+		if openapiSpec.GetVersion() != "" {
+			version = openapiSpec.GetVersion()
 		}
 
 		server := mcp.NewServer(&mcp.Implementation{Name: serverName, Title: serverTitle, Version: version}, nil)

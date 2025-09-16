@@ -1,0 +1,628 @@
+openapi: 3.0.0
+info:
+  title: Example API v3
+  description: A comprehensive example API for testing kumoctl with OpenAPI 3.0
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@example.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.example.com/v1
+    description: Production server
+  - url: https://staging-api.example.com/v1
+    description: Staging server
+
+paths:
+  /users:
+    get:
+      operationId: users_list
+      summary: List all users
+      description: Retrieve a paginated list of users with optional filtering
+      parameters:
+        - name: page
+          in: query
+          description: Page number for pagination (1-based)
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          description: Number of users per page
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: search
+          in: query
+          description: Search term for filtering users by name or email
+          required: false
+          schema:
+            type: string
+            minLength: 2
+        - name: role
+          in: query
+          description: Filter by user role
+          required: false
+          schema:
+            type: string
+            enum: [admin, user, guest]
+      responses:
+        '200':
+          description: List of users retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserListResponse'
+        '400':
+          description: Invalid query parameters
+
+    post:
+      operationId: users_create
+      summary: Create a new user
+      description: Create a new user account with profile information
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreateRequest'
+            examples:
+              basic_user:
+                summary: Basic user example
+                value:
+                  email: "john.doe@example.com"
+                  name: "John Doe"
+                  age: 30
+              admin_user:
+                summary: Admin user example
+                value:
+                  email: "admin@example.com"
+                  name: "Admin User"
+                  is_admin: true
+                  preferences:
+                    theme: "dark"
+                    notifications: true
+      responses:
+        '201':
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: Invalid input data
+        '409':
+          description: User with email already exists
+
+  /users/{userId}:
+    parameters:
+      - name: userId
+        in: path
+        description: The user's unique identifier
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    get:
+      operationId: users_read
+      summary: Get user by ID
+      description: Retrieve detailed information about a specific user
+      parameters:
+        - name: include_profile
+          in: query
+          description: Include extended profile information
+          required: false
+          schema:
+            type: boolean
+            default: false
+        - name: include_stats
+          in: query
+          description: Include user activity statistics
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: User details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          description: User not found
+
+    patch:
+      operationId: users_update
+      summary: Update user
+      description: Partially update a user's information
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdateRequest'
+      responses:
+        '200':
+          description: User updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: Invalid input data
+        '404':
+          description: User not found
+
+    delete:
+      operationId: users_delete
+      summary: Delete user
+      description: Permanently delete a user account
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: force
+          in: query
+          description: Force delete even if user has associated data
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '204':
+          description: User deleted successfully
+        '404':
+          description: User not found
+        '409':
+          description: Cannot delete user with associated data (use force=true)
+
+  /organizations:
+    post:
+      operationId: organizations_create
+      summary: Create organization
+      description: Create a new organization with initial settings
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrganizationCreateRequest'
+      responses:
+        '201':
+          description: Organization created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+
+  /organizations/{orgId}/projects:
+    parameters:
+      - name: orgId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Organization identifier
+
+    get:
+      operationId: organization_projects_list
+      summary: List organization projects
+      description: Get all projects within an organization
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, archived, draft]
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [name, created_at, updated_at]
+            default: created_at
+      responses:
+        '200':
+          description: Projects retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Project'
+
+    post:
+      operationId: organization_projects_create
+      summary: Create project in organization
+      description: Create a new project within the specified organization
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectCreateRequest'
+      responses:
+        '201':
+          description: Project created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    UserCreateRequest:
+      type: object
+      required:
+        - email
+        - name
+      properties:
+        email:
+          type: string
+          format: email
+          description: The user's email address
+          example: "user@example.com"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: The user's full name
+          example: "John Doe"
+        age:
+          type: integer
+          minimum: 18
+          maximum: 120
+          description: The user's age
+          example: 30
+        is_admin:
+          type: boolean
+          default: false
+          description: Whether the user has admin privileges
+        preferences:
+          type: object
+          description: User preferences and settings
+          properties:
+            theme:
+              type: string
+              enum: [light, dark, auto]
+              default: auto
+              description: UI theme preference
+            notifications:
+              type: boolean
+              default: true
+              description: Whether to receive notifications
+            language:
+              type: string
+              default: en
+              pattern: '^[a-z]{2}(-[A-Z]{2})?$'
+              description: Preferred language code (ISO 639-1)
+            timezone:
+              type: string
+              description: User's timezone
+              example: "America/New_York"
+        social_links:
+          type: object
+          description: Social media links
+          properties:
+            twitter:
+              type: string
+              format: uri
+            linkedin:
+              type: string
+              format: uri
+            github:
+              type: string
+              format: uri
+        tags:
+          type: array
+          items:
+            type: string
+          description: User tags for categorization
+          example: ["developer", "frontend"]
+
+    UserUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: The user's full name
+        age:
+          type: integer
+          minimum: 18
+          maximum: 120
+          description: The user's age
+        is_admin:
+          type: boolean
+          description: Whether the user has admin privileges
+        preferences:
+          type: object
+          properties:
+            theme:
+              type: string
+              enum: [light, dark, auto]
+            notifications:
+              type: boolean
+            language:
+              type: string
+              pattern: '^[a-z]{2}(-[A-Z]{2})?$'
+            timezone:
+              type: string
+        social_links:
+          type: object
+          properties:
+            twitter:
+              type: string
+              format: uri
+            linkedin:
+              type: string
+              format: uri
+            github:
+              type: string
+              format: uri
+        tags:
+          type: array
+          items:
+            type: string
+
+    OrganizationCreateRequest:
+      type: object
+      required:
+        - name
+        - type
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 100
+          description: Organization name
+          example: "Acme Corp"
+        description:
+          type: string
+          maxLength: 500
+          description: Organization description
+        type:
+          type: string
+          enum: [company, nonprofit, government, education]
+          description: Type of organization
+        settings:
+          type: object
+          properties:
+            visibility:
+              type: string
+              enum: [public, private]
+              default: private
+            allow_external_members:
+              type: boolean
+              default: false
+            require_two_factor:
+              type: boolean
+              default: false
+        billing_info:
+          type: object
+          properties:
+            plan:
+              type: string
+              enum: [free, pro, enterprise]
+              default: free
+            billing_email:
+              type: string
+              format: email
+
+    ProjectCreateRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: The project name
+          example: "My Awesome Project"
+        description:
+          type: string
+          maxLength: 1000
+          description: Project description
+        visibility:
+          type: string
+          enum: [public, private, internal]
+          default: private
+          description: Project visibility level
+        settings:
+          type: object
+          description: Project settings
+          properties:
+            allow_issues:
+              type: boolean
+              default: true
+            allow_wiki:
+              type: boolean
+              default: false
+            allow_discussions:
+              type: boolean
+              default: true
+            default_branch:
+              type: string
+              default: main
+              description: Default git branch name
+        team_members:
+          type: array
+          description: Initial team members
+          items:
+            type: object
+            required:
+              - user_id
+              - role
+            properties:
+              user_id:
+                type: string
+                format: uuid
+                description: User ID to add to the project
+              role:
+                type: string
+                enum: [owner, admin, developer, viewer]
+                description: User's role in the project
+              permissions:
+                type: array
+                items:
+                  type: string
+                  enum: [read, write, admin, deploy]
+        labels:
+          type: array
+          items:
+            type: object
+            required: [name, color]
+            properties:
+              name:
+                type: string
+                maxLength: 50
+              color:
+                type: string
+                pattern: '^#[0-9A-Fa-f]{6}$'
+                description: Hex color code
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Additional project metadata
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The user's unique identifier
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        age:
+          type: integer
+        is_admin:
+          type: boolean
+        preferences:
+          type: object
+        social_links:
+          type: object
+        tags:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        last_login_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    Organization:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+          enum: [company, nonprofit, government, education]
+        settings:
+          type: object
+        billing_info:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+
+    Project:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        visibility:
+          type: string
+        settings:
+          type: object
+        team_members:
+          type: array
+          items:
+            type: object
+        labels:
+          type: array
+          items:
+            type: object
+        metadata:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    UserListResponse:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        pagination:
+          type: object
+          properties:
+            page:
+              type: integer
+            limit:
+              type: integer
+            total:
+              type: integer
+            has_more:
+              type: boolean
+        filters_applied:
+          type: object
+          properties:
+            search:
+              type: string
+            role:
+              type: string

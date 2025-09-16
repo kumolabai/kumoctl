@@ -1,0 +1,492 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Example API",
+    "description": "A simple example API for testing kumoctl with OpenAPI 2.0",
+    "version": "1.0.0"
+  },
+  "host": "api.example.com",
+  "basePath": "/v1",
+  "schemes": ["https"],
+  "consumes": ["application/json"],
+  "produces": ["application/json"],
+
+  "paths": {
+    "/users": {
+      "get": {
+        "operationId": "users_list",
+        "summary": "List all users",
+        "description": "Retrieve a paginated list of users",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number for pagination",
+            "required": false,
+            "type": "integer",
+            "default": 1
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Number of users per page",
+            "required": false,
+            "type": "integer",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 100
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "description": "Search term for filtering users",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of users",
+            "schema": {
+              "$ref": "#/definitions/UserListResponse"
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "users_create",
+        "summary": "Create a new user",
+        "description": "Create a new user with the provided information",
+        "parameters": [
+          {
+            "name": "data",
+            "in": "body",
+            "description": "User creation data",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/UserCreateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "User created successfully",
+            "schema": {
+              "$ref": "#/definitions/User"
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          }
+        }
+      }
+    },
+
+    "/users/{userId}": {
+      "get": {
+        "operationId": "users_read",
+        "summary": "Get user by ID",
+        "description": "Retrieve a specific user by their ID",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "description": "The user's unique identifier",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "include_profile",
+            "in": "query",
+            "description": "Whether to include detailed profile information",
+            "required": false,
+            "type": "boolean",
+            "default": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User details",
+            "schema": {
+              "$ref": "#/definitions/User"
+            }
+          },
+          "404": {
+            "description": "User not found"
+          }
+        }
+      },
+
+      "put": {
+        "operationId": "users_update",
+        "summary": "Update user",
+        "description": "Update a user's information",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "description": "The user's unique identifier",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "data",
+            "in": "body",
+            "description": "Updated user data",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/UserUpdateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User updated successfully",
+            "schema": {
+              "$ref": "#/definitions/User"
+            }
+          },
+          "404": {
+            "description": "User not found"
+          }
+        }
+      },
+
+      "delete": {
+        "operationId": "users_delete",
+        "summary": "Delete user",
+        "description": "Delete a user account",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "description": "The user's unique identifier",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "force",
+            "in": "query",
+            "description": "Force delete even if user has associated data",
+            "required": false,
+            "type": "boolean",
+            "default": false
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "User deleted successfully"
+          },
+          "404": {
+            "description": "User not found"
+          }
+        }
+      }
+    },
+
+    "/projects": {
+      "post": {
+        "operationId": "projects_create",
+        "summary": "Create a new project",
+        "description": "Create a new project with settings and team members",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "description": "API authentication key",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "data",
+            "in": "body",
+            "description": "Project creation data",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ProjectCreateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Project created successfully",
+            "schema": {
+              "$ref": "#/definitions/Project"
+            }
+          }
+        }
+      }
+    }
+  },
+
+  "definitions": {
+    "UserCreateRequest": {
+      "type": "object",
+      "required": ["email", "name"],
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "The user's email address"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "The user's full name"
+        },
+        "age": {
+          "type": "integer",
+          "minimum": 18,
+          "maximum": 120,
+          "description": "The user's age"
+        },
+        "is_admin": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the user has admin privileges"
+        },
+        "preferences": {
+          "type": "object",
+          "properties": {
+            "theme": {
+              "type": "string",
+              "enum": ["light", "dark", "auto"],
+              "default": "auto",
+              "description": "UI theme preference"
+            },
+            "notifications": {
+              "type": "boolean",
+              "default": true,
+              "description": "Whether to receive notifications"
+            },
+            "language": {
+              "type": "string",
+              "default": "en",
+              "description": "Preferred language code"
+            }
+          },
+          "description": "User preferences and settings"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "User tags for categorization"
+        }
+      }
+    },
+
+    "UserUpdateRequest": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "The user's full name"
+        },
+        "age": {
+          "type": "integer",
+          "minimum": 18,
+          "maximum": 120,
+          "description": "The user's age"
+        },
+        "is_admin": {
+          "type": "boolean",
+          "description": "Whether the user has admin privileges"
+        },
+        "preferences": {
+          "type": "object",
+          "properties": {
+            "theme": {
+              "type": "string",
+              "enum": ["light", "dark", "auto"]
+            },
+            "notifications": {
+              "type": "boolean"
+            },
+            "language": {
+              "type": "string"
+            }
+          }
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+
+    "ProjectCreateRequest": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "The project name"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Project description"
+        },
+        "visibility": {
+          "type": "string",
+          "enum": ["public", "private", "internal"],
+          "default": "private",
+          "description": "Project visibility level"
+        },
+        "settings": {
+          "type": "object",
+          "properties": {
+            "allow_issues": {
+              "type": "boolean",
+              "default": true
+            },
+            "allow_wiki": {
+              "type": "boolean",
+              "default": false
+            },
+            "default_branch": {
+              "type": "string",
+              "default": "main"
+            }
+          },
+          "description": "Project settings"
+        },
+        "team_members": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["user_id", "role"],
+            "properties": {
+              "user_id": {
+                "type": "string",
+                "description": "User ID to add to the project"
+              },
+              "role": {
+                "type": "string",
+                "enum": ["owner", "admin", "developer", "viewer"],
+                "description": "User's role in the project"
+              }
+            }
+          },
+          "description": "Initial team members"
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Additional project metadata"
+        }
+      }
+    },
+
+    "User": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The user's unique identifier"
+        },
+        "email": {
+          "type": "string",
+          "format": "email"
+        },
+        "name": {
+          "type": "string"
+        },
+        "age": {
+          "type": "integer"
+        },
+        "is_admin": {
+          "type": "boolean"
+        },
+        "preferences": {
+          "type": "object"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+
+    "Project": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "visibility": {
+          "type": "string"
+        },
+        "settings": {
+          "type": "object"
+        },
+        "team_members": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+
+    "UserListResponse": {
+      "type": "object",
+      "properties": {
+        "users": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/User"
+          }
+        },
+        "pagination": {
+          "type": "object",
+          "properties": {
+            "page": {
+              "type": "integer"
+            },
+            "limit": {
+              "type": "integer"
+            },
+            "total": {
+              "type": "integer"
+            },
+            "has_more": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  }
+}

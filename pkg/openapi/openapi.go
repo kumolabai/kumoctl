@@ -6,99 +6,172 @@ import (
 	"os"
 	"strings"
 
+	"github.com/getkin/kin-openapi/openapi2"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/google/jsonschema-go/jsonschema"
+	"gopkg.in/yaml.v3"
 )
 
-func LoadSpec(filePath string) (*openapi3.T, error) {
+// APISpec represents either OpenAPI 2.0 or 3.0 specification
+type APISpec interface {
+	GetVersion() string
+	GetBaseURL() string
+	GetPaths() map[string]PathItem
+	GetInfo() openapi3.Info
+}
+
+// PathItem represents a path item that can contain operations
+type PathItem interface {
+	GetOperations() map[string]Operation
+}
+
+// Operation represents an API operation
+type Operation interface {
+	GetOperationID() string
+	GetSummary() string
+	GetParameters() []Parameter
+	GetRequestBody() RequestBody
+}
+
+// Parameter represents an API parameter
+type Parameter interface {
+	GetName() string
+	GetIn() string
+	GetDescription() string
+	IsRequired() bool
+	GetType() string
+	GetFormat() string
+	GetSchema() Schema
+}
+
+// RequestBody represents a request body
+type RequestBody interface {
+	GetJSONSchema() (Schema, error)
+}
+
+// Schema represents a schema definition
+type Schema interface {
+	GetType() string
+	GetFormat() string
+	GetDescription() string
+	GetProperties() map[string]Schema
+	GetItems() Schema
+	GetRequired() []string
+	GetEnum() []interface{}
+	GetDefault() interface{}
+}
+
+func LoadSpec(filePath string) (APISpec, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
+	// Try OpenAPI 3.0 first
 	loader := openapi3.NewLoader()
-
-	var spec *openapi3.T
-
-	spec, err = loader.LoadFromData(data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse OpenAPI spec: %w", err)
+	if spec, err := loader.LoadFromData(data); err == nil {
+		if err := spec.Validate(loader.Context); err == nil {
+			return &OpenAPI3Spec{spec: spec}, nil
+		}
 	}
 
-	// Validate the spec
-	err = spec.Validate(loader.Context)
-	if err != nil {
-		return nil, fmt.Errorf("invalid OpenAPI spec: %w", err)
+	// Fallback to OpenAPI 2
+	var spec2 openapi2.T
+	if err := json.Unmarshal(data, &spec2); err == nil {
+		if spec2.Swagger != "" {
+			return &OpenAPI2Spec{spec: &spec2}, nil
+		}
 	}
 
-	return spec, nil
-}
-
-func GetBaseURL(spec *openapi3.T) string {
-	if len(spec.Servers) > 0 && spec.Servers[0].URL != "" {
-		return spec.Servers[0].URL
+	// Try OpenAPI 2.0 with YAML - convert to JSON first to avoid unmarshaling issues
+	var yamlData interface{}
+	if err := yaml.Unmarshal(data, &yamlData); err != nil {
+		return nil, fmt.Errorf("unsupported or invalid OpenAPI specification")
 	}
-	return "http://localhost:8080"
-}
 
-func GetPathOperations(pathItem *openapi3.PathItem) map[string]*openapi3.Operation {
-	return map[string]*openapi3.Operation{
-		"get":     pathItem.Get,
-		"post":    pathItem.Post,
-		"put":     pathItem.Put,
-		"delete":  pathItem.Delete,
-		"patch":   pathItem.Patch,
-		"head":    pathItem.Head,
-		"options": pathItem.Options,
-		"trace":   pathItem.Trace,
+	// Convert YAML data to JSON
+	var jsonData []byte
+	if jsonData, err = json.Marshal(yamlData); err != nil {
+		return nil, fmt.Errorf("unsupported or invalid OpenAPI specification")
 	}
+
+	spec2 = openapi2.T{}
+	if err := json.Unmarshal(jsonData, &spec2); err != nil {
+		return nil, fmt.Errorf("unsupported or invalid OpenAPI specification")
+	}
+
+	if spec2.Swagger == "" {
+		return nil, fmt.Errorf("unsupported or invalid OpenAPI specification")
+	}
+
+	return &OpenAPI2Spec{spec: &spec2}, nil
 }
 
 // generateInputSchema creates a JSON schema for the tool input based on OpenAPI operation
-func GenerateInputSchema(operation *openapi3.Operation) (*jsonschema.Schema, error) {
+func GenerateInputSchema(operation interface{}) (*jsonschema.Schema, error) {
+	// Handle both old and new interfaces
+	switch op := operation.(type) {
+	case *openapi3.Operation:
+		return generateInputSchemaV3(op)
+	case Operation:
+		return generateInputSchemaFromInterface(op)
+	default:
+		return nil, fmt.Errorf("unsupported operation type")
+	}
+}
+
+func generateInputSchemaFromInterface(operation Operation) (*jsonschema.Schema, error) {
 	schema := &jsonschema.Schema{
 		Type:       "object",
 		Properties: make(map[string]*jsonschema.Schema),
 		Required:   []string{},
 	}
 
-	// Extract path parameters
-	for _, param := range operation.Parameters {
-		if param.Value == nil {
+	// Extract parameters (skip body parameters as they are handled separately)
+	for _, param := range operation.GetParameters() {
+		// Skip body parameters - they will be handled in the request body section
+		if param.GetIn() == "body" {
 			continue
 		}
-		paramValue := param.Value
 
-		schema.Properties[paramValue.Name] = convertParameterToJSONSchema(paramValue)
-		if paramValue.Required {
-			schema.Required = append(schema.Required, paramValue.Name)
-		}
-		if paramValue.Schema.Value.Format != "" {
-			schema.Format = paramValue.Schema.Value.Format
+		paramSchema := convertParameterToJSONSchemaFromInterface(param)
+		if paramSchema != nil {
+			schema.Properties[param.GetName()] = paramSchema
+			if param.IsRequired() {
+				schema.Required = append(schema.Required, param.GetName())
+			}
 		}
 	}
 
 	// Add request body properties if present
-	if operation.RequestBody != nil {
-		bodySchema, err := convertRequestBodyToJSONSchema(operation.RequestBody)
+	if requestBody := operation.GetRequestBody(); requestBody != nil {
+		bodySchema, err := requestBody.GetJSONSchema()
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert request body to schema: %w", err)
 		}
 
 		// Merge body schema properties into main schema
-		if bodySchema != nil && bodySchema.Properties != nil {
-			for propName, propSchema := range bodySchema.Properties {
-				schema.Properties[propName] = propSchema
-			}
+		if bodySchema != nil {
+			bodyJSONSchema := convertSchemaToJSONSchema(bodySchema)
+			if bodyJSONSchema != nil && bodyJSONSchema.Properties != nil {
+				for propName, propSchema := range bodyJSONSchema.Properties {
+					schema.Properties[propName] = propSchema
+				}
 
-			// Add required properties from body schema
-			if bodySchema.Required != nil {
-				schema.Required = append(schema.Required, bodySchema.Required...)
+				// Add required properties from body schema
+				if bodyJSONSchema.Required != nil {
+					schema.Required = append(schema.Required, bodyJSONSchema.Required...)
+				}
 			}
 		}
 	}
 
 	return schema, nil
+}
+
+func generateInputSchemaV3(operation *openapi3.Operation) (*jsonschema.Schema, error) {
+	// Convert to interface and use the new implementation
+	return generateInputSchemaFromInterface(&OpenAPI3Operation{Op: operation})
 }
 
 func GetRequestBodyJSONContent(requestBodyRef *openapi3.RequestBodyRef) (*openapi3.MediaType, error) {
@@ -119,86 +192,78 @@ func GetRequestBodyJSONContent(requestBodyRef *openapi3.RequestBodyRef) (*openap
 	return contentType, nil
 }
 
-// convertParameterToJSONSchema converts an OpenAPI parameter to JSON schema
-func convertParameterToJSONSchema(param *openapi3.Parameter) *jsonschema.Schema {
+// Helper functions for converting to jsonschema
+func convertParameterToJSONSchemaFromInterface(param Parameter) *jsonschema.Schema {
 	if param == nil {
 		return nil
 	}
 
-	schema := &jsonschema.Schema{}
-
-	// Set description
-	desc := param.Description
-	if desc == "" {
-		desc = fmt.Sprintf("%s parameter: %s", strings.ToUpper(param.In[:1])+param.In[1:], param.Name)
-	}
-	schema.Description = desc
-
-	// Handle parameter schema
-	if param.Schema != nil && param.Schema.Value != nil {
-		return convertOpenAPISchemaToJSONSchema(param.Schema.Value)
+	schema := &jsonschema.Schema{
+		Description: param.GetDescription(),
 	}
 
-	// Fallback to string type
-	schema.Type = "string"
+	if schema.Description == "" {
+		schema.Description = fmt.Sprintf("%s parameter: %s",
+			strings.ToUpper(param.GetIn()[:1])+param.GetIn()[1:],
+			param.GetName())
+	}
+
+	// Handle parameter schema if available
+	if paramSchema := param.GetSchema(); paramSchema != nil {
+		return convertSchemaToJSONSchema(paramSchema)
+	}
+
+	// Use type and format directly
+	schema.Type = param.GetType()
+	if schema.Type == "" {
+		schema.Type = "string"
+	}
+	if param.GetFormat() != "" {
+		schema.Format = param.GetFormat()
+	}
+
 	return schema
 }
 
-// convertRequestBodyToJSONSchema converts OpenAPI request body to JSON schema
-func convertRequestBodyToJSONSchema(requestBodyRef *openapi3.RequestBodyRef) (*jsonschema.Schema, error) {
-	contentType, err := GetRequestBodyJSONContent(requestBodyRef)
-	if err != nil {
-		return nil, err
-	}
-
-	schema := contentType.Schema.Value
-	return convertOpenAPISchemaToJSONSchema(schema), nil
-}
-
-// convertOpenAPISchemaToJSONSchema converts OpenAPI schema to JSON schema
-func convertOpenAPISchemaToJSONSchema(schema *openapi3.Schema) *jsonschema.Schema {
+func convertSchemaToJSONSchema(schema Schema) *jsonschema.Schema {
 	if schema == nil {
 		return nil
 	}
 
 	jsonSchema := &jsonschema.Schema{
-		Description: schema.Description,
+		Type:        schema.GetType(),
+		Format:      schema.GetFormat(),
+		Description: schema.GetDescription(),
+		Properties:  make(map[string]*jsonschema.Schema),
 	}
 
-	// Handle default value with proper type casting
-	if schema.Default != nil {
-		if defaultBytes, err := json.Marshal(schema.Default); err == nil {
+	// Handle default value
+	if defaultVal := schema.GetDefault(); defaultVal != nil {
+		if defaultBytes, err := json.Marshal(defaultVal); err == nil {
 			jsonSchema.Default = json.RawMessage(defaultBytes)
 		}
 	}
 
-	jsonSchema.Type = schema.Type.Slice()[0]
-	jsonSchema.Properties = make(map[string]*jsonschema.Schema)
-	if schema.Format != "" {
-		jsonSchema.Format = schema.Format
-	}
-
 	// Convert properties
-	if schema.Properties != nil {
-		for propName, propSchemaRef := range schema.Properties {
-			if propSchemaRef.Value != nil {
-				jsonSchema.Properties[propName] = convertOpenAPISchemaToJSONSchema(propSchemaRef.Value)
-			}
+	if properties := schema.GetProperties(); properties != nil {
+		for propName, propSchema := range properties {
+			jsonSchema.Properties[propName] = convertSchemaToJSONSchema(propSchema)
 		}
 	}
 
-	if schema.Items != nil && schema.Items.Value != nil {
-		jsonSchema.Items = convertOpenAPISchemaToJSONSchema(schema.Items.Value)
+	// Handle items for arrays
+	if items := schema.GetItems(); items != nil {
+		jsonSchema.Items = convertSchemaToJSONSchema(items)
 	}
 
 	// Set required fields
-	if len(schema.Required) > 0 {
-		jsonSchema.Required = schema.Required
+	if required := schema.GetRequired(); len(required) > 0 {
+		jsonSchema.Required = required
 	}
 
 	// Handle enum
-	if len(schema.Enum) > 0 {
-		jsonSchema.Enum = schema.Enum
+	if enum := schema.GetEnum(); len(enum) > 0 {
+		jsonSchema.Enum = enum
 	}
 
 	return jsonSchema

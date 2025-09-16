@@ -10,7 +10,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/kumolabai/kumoctl/pkg/openapi"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -19,24 +18,25 @@ import (
 type APIToolInput map[string]interface{}
 
 // APIToolOutput represents the output from API calls
+// TODO: Look into changing this to the actual response schema from the OpenAPI Spec
 type APIToolOutput struct {
-	StatusCode int                 `json:"status_code"`
-	Body       interface{}         `json:"body,omitempty"`
-	Headers    map[string]string   `json:"headers,omitempty"`
-	Error      string              `json:"error,omitempty"`
+	StatusCode int               `json:"status_code"`
+	Body       interface{}       `json:"body,omitempty"`
+	Headers    map[string]string `json:"headers,omitempty"`
+	Error      string            `json:"error,omitempty"`
 }
 
-func GenerateToolsFromSpec(server *mcp.Server, spec *openapi3.T) error {
-	baseURL := openapi.GetBaseURL(spec)
+func GenerateToolsFromSpec(server *mcp.Server, spec openapi.APISpec) error {
+	baseURL := spec.GetBaseURL()
 
-	for path, pathItem := range spec.Paths.Map() {
-		for method, operation := range openapi.GetPathOperations(pathItem) {
+	for path, pathItem := range spec.GetPaths() {
+		for method, operation := range pathItem.GetOperations() {
 			if operation == nil {
 				continue
 			}
 
-			toolName := generateToolName(method, path, operation.OperationID)
-			description := operation.Summary
+			toolName := generateToolName(method, path, operation.GetOperationID())
+			description := operation.GetSummary()
 			if description == "" {
 				description = fmt.Sprintf("%s %s", strings.ToUpper(method), path)
 			}
@@ -46,6 +46,10 @@ func GenerateToolsFromSpec(server *mcp.Server, spec *openapi3.T) error {
 			if err != nil {
 				return fmt.Errorf("failed to generate input schema for %s %s: %w", method, path, err)
 			}
+
+			fmt.Println(toolName)
+			j, _ := inputSchema.MarshalJSON()
+			fmt.Printf("%s\n\n", j)
 
 			tool := &mcp.Tool{
 				Name:        toolName,
@@ -86,7 +90,7 @@ func buildURL(baseURL, path string, input APIToolInput) (*url.URL, error) {
 	// Replace path parameters
 	pathParamRegex := regexp.MustCompile(`\{([^}]+)\}`)
 	var missingParams []string
-	
+
 	finalPath := pathParamRegex.ReplaceAllStringFunc(path, func(match string) string {
 		paramName := match[1 : len(match)-1] // Remove { and }
 		if value, exists := input[paramName]; exists {
@@ -106,17 +110,12 @@ func buildURL(baseURL, path string, input APIToolInput) (*url.URL, error) {
 }
 
 // addQueryParams adds query parameters to the URL
-func addQueryParams(fullURL *url.URL, operation *openapi3.Operation, input APIToolInput) error {
-	if operation.Parameters == nil {
-		return nil
-	}
-
+func addQueryParams(fullURL *url.URL, operation openapi.Operation, input APIToolInput) error {
 	query := fullURL.Query()
-	for _, paramRef := range operation.Parameters {
-		param := paramRef.Value
-		if param.In == "query" {
-			if value, exists := input[param.Name]; exists {
-				query.Set(param.Name, fmt.Sprintf("%v", value))
+	for _, param := range operation.GetParameters() {
+		if param.GetIn() == "query" {
+			if value, exists := input[param.GetName()]; exists {
+				query.Set(param.GetName(), fmt.Sprintf("%v", value))
 			}
 		}
 	}
@@ -125,18 +124,25 @@ func addQueryParams(fullURL *url.URL, operation *openapi3.Operation, input APITo
 }
 
 // hasRequestBody checks if the operation expects a request body
-func hasRequestBody(operation *openapi3.Operation) bool {
-	return operation.RequestBody != nil
+func hasRequestBody(operation openapi.Operation) bool {
+	return operation.GetRequestBody() != nil
 }
 
 // buildRequestBody constructs the JSON request body
-func buildRequestBody(operation *openapi3.Operation, input APIToolInput) ([]byte, error) {
-	contentType, err := openapi.GetRequestBodyJSONContent(operation.RequestBody)
+func buildRequestBody(operation openapi.Operation, input APIToolInput) ([]byte, error) {
+	requestBody := operation.GetRequestBody()
+	if requestBody == nil {
+		return nil, nil
+	}
+
+	schema, err := requestBody.GetJSONSchema()
 	if err != nil {
 		return nil, err
 	}
 
-	schema := contentType.Schema.Value
+	if schema == nil {
+		return nil, nil
+	}
 
 	// Build request body from input based on schema
 	body := make(map[string]interface{})
@@ -146,20 +152,17 @@ func buildRequestBody(operation *openapi3.Operation, input APIToolInput) ([]byte
 }
 
 // setHeaders sets HTTP headers based on operation parameters and defaults
-func setHeaders(req *http.Request, operation *openapi3.Operation, input APIToolInput) error {
+func setHeaders(req *http.Request, operation openapi.Operation, input APIToolInput) error {
 	// Set default content type for requests with body
 	if hasRequestBody(operation) {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
 	// Add header parameters
-	if operation.Parameters != nil {
-		for _, paramRef := range operation.Parameters {
-			param := paramRef.Value
-			if param.In == "header" {
-				if value, exists := input[param.Name]; exists {
-					req.Header.Set(param.Name, fmt.Sprintf("%v", value))
-				}
+	for _, param := range operation.GetParameters() {
+		if param.GetIn() == "header" {
+			if value, exists := input[param.GetName()]; exists {
+				req.Header.Set(param.GetName(), fmt.Sprintf("%v", value))
 			}
 		}
 	}
@@ -194,30 +197,25 @@ func parseResponse(resp *http.Response) (APIToolOutput, error) {
 }
 
 // extractFieldsFromSchema recursively extracts fields from schema and input
-func extractFieldsFromSchema(target map[string]interface{}, schema *openapi3.Schema, input APIToolInput) {
+func extractFieldsFromSchema(target map[string]interface{}, schema openapi.Schema, input APIToolInput) {
 	if schema == nil {
 		return
 	}
 
 	// Handle object properties
-	if schema.Type.Is("object") && schema.Properties != nil {
-		for propName, propSchemaRef := range schema.Properties {
-			if propSchemaRef.Value == nil {
-				continue
-			}
-			propSchema := propSchemaRef.Value
-
+	if schema.GetType() == "object" {
+		for propName, propSchema := range schema.GetProperties() {
 			if value, exists := input[propName]; exists {
 				target[propName] = value
-			} else if propSchema.Default != nil {
-				target[propName] = propSchema.Default
+			} else if defaultVal := propSchema.GetDefault(); defaultVal != nil {
+				target[propName] = defaultVal
 			}
 		}
 	}
 }
 
 // createAPIHandler creates a handler function for a specific API operation
-func createAPIHandler(baseURL, method, path string, operation *openapi3.Operation) func(context.Context, *mcp.CallToolRequest, APIToolInput) (*mcp.CallToolResult, APIToolOutput, error) {
+func createAPIHandler(baseURL, method, path string, operation openapi.Operation) func(context.Context, *mcp.CallToolRequest, APIToolInput) (*mcp.CallToolResult, APIToolOutput, error) {
 	return func(ctx context.Context, req *mcp.CallToolRequest, input APIToolInput) (*mcp.CallToolResult, APIToolOutput, error) {
 		// Build the full URL with path parameters
 		fullURL, err := buildURL(baseURL, path, input)
