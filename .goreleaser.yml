@@ -1,0 +1,39 @@
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: kumoctl
+    main: ./main.go
+    binary: kumoctl
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X cmd.version={{.Version}} -X cmd.commit={{.Commit}} -X cmd.date={{.Date}}
+
+archives:
+  - id: kumoctl
+    name_template: "kumoctl_{{.Version}}_{{.Os}}_{{.Arch}}"
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: 'checksums.txt'
+
+release:
+  github:
+    owner: kumolabai
+    name: kumoctl
+  draft: false
+  prerelease: auto
