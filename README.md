@@ -4,7 +4,17 @@ A CLI tool to dynamically serve MCP (Model Context Protocol) servers from OpenAP
 
 ## Installation
 
-TODO
+### Linux, macOS
+
+```bash
+curl -fsSL https://get.kumolab.ai | sh
+```
+
+### Windows
+
+```powershell
+irm https://get.kumolab.ai/install.ps1 | iex
+```
 
 ## Usage
 
