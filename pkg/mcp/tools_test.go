@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/kumolabai/kumoctl/pkg/openapi"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestGenerateToolName(t *testing.T) {
@@ -613,7 +615,7 @@ func TestPathParametersSpecific(t *testing.T) {
 	tmpFile.Close()
 
 	// Load spec and generate tools
-	spec, err := openapi.LoadSpec(tmpFile.Name())
+	spec, err := openapi.LoadSpecFromSource(tmpFile.Name())
 	if err != nil {
 		t.Fatalf("Failed to load spec: %v", err)
 	}
@@ -798,6 +800,237 @@ func TestBuildURLDirectly(t *testing.T) {
 	}
 }
 
+func TestCreateAPIHandlerForTool_AdditionalHeaders(t *testing.T) {
+	// Create a mock server that logs the headers it receives
+	var receivedHeaders http.Header
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Store the headers for verification
+		receivedHeaders = r.Header.Clone()
+		t.Logf("Received headers: %+v", r.Header)
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status": "ok",
+		})
+	}))
+	defer mockServer.Close()
+
+	// Create a simple operation for testing
+	operation := &openapi.OpenAPI3Operation{
+		Op: &openapi3.Operation{
+			OperationID: "testOperation",
+			Summary:     "Test operation",
+			Parameters:  nil,
+		},
+	}
+
+	// Create an enriched tool
+	tool := &EnrichedTool{
+		Tool: &mcp.Tool{
+			Name:        "testTool",
+			Description: "Test tool",
+			InputSchema: nil,
+		},
+		BaseUrl:   mockServer.URL,
+		Method:    "get",
+		Path:      "/test",
+		Operation: operation,
+	}
+
+	testCases := []struct {
+		name              string
+		additionalHeaders http.Header
+		input             APIToolInput
+		expectedHeaders   map[string]string
+	}{
+		{
+			name: "Single additional header",
+			additionalHeaders: http.Header{
+				"Authorization": []string{"Bearer token123"},
+			},
+			input: APIToolInput{},
+			expectedHeaders: map[string]string{
+				"Authorization": "Bearer token123",
+			},
+		},
+		{
+			name: "Multiple additional headers",
+			additionalHeaders: http.Header{
+				"Authorization": []string{"Bearer token123"},
+				"X-Api-Key":     []string{"api-key-456"},
+				"X-Custom":      []string{"custom-value"},
+			},
+			input: APIToolInput{},
+			expectedHeaders: map[string]string{
+				"Authorization": "Bearer token123",
+				"X-Api-Key":     "api-key-456",
+				"X-Custom":      "custom-value",
+			},
+		},
+		{
+			name:              "No additional headers",
+			additionalHeaders: http.Header{},
+			input:             APIToolInput{},
+			expectedHeaders:   map[string]string{},
+		},
+		{
+			name: "Header with multiple values",
+			additionalHeaders: http.Header{
+				"X-Multi": []string{"value1"},
+			},
+			input: APIToolInput{},
+			expectedHeaders: map[string]string{
+				"X-Multi": "value1",
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Reset received headers
+			receivedHeaders = nil
+
+			// Create handler with additional headers
+			handler := createAPIHandlerForTool(tool, tc.additionalHeaders)
+
+			// Execute the handler
+			_, output, err := handler(context.Background(), nil, tc.input)
+
+			if err != nil {
+				t.Fatalf("Handler execution failed: %v", err)
+			}
+
+			if output.Error != "" {
+				t.Fatalf("Handler returned error: %s", output.Error)
+			}
+
+			if output.StatusCode != http.StatusOK {
+				t.Fatalf("Expected status code 200, got %d", output.StatusCode)
+			}
+
+			// Verify that all expected headers are present
+			for key, expectedValue := range tc.expectedHeaders {
+				actualValue := receivedHeaders.Get(key)
+				if actualValue != expectedValue {
+					t.Errorf("Header %s: expected '%s', got '%s'", key, expectedValue, actualValue)
+				}
+			}
+
+			// Verify no unexpected additional headers if we specified some
+			if len(tc.additionalHeaders) > 0 {
+				for key := range tc.additionalHeaders {
+					if receivedHeaders.Get(key) == "" {
+						t.Errorf("Expected header %s was not found in request", key)
+					}
+				}
+			}
+
+			t.Logf("✓ Additional headers test passed: %s", tc.name)
+		})
+	}
+}
+
+func TestCreateAPIHandlerForTool_AdditionalHeadersWithRequestBody(t *testing.T) {
+	// Create a mock server that logs the headers it receives
+	var receivedHeaders http.Header
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Store the headers for verification
+		receivedHeaders = r.Header.Clone()
+		t.Logf("Received headers: %+v", r.Header)
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status": "created",
+		})
+	}))
+	defer mockServer.Close()
+
+	// Create an operation with request body
+	operation := &openapi.OpenAPI3Operation{
+		Op: &openapi3.Operation{
+			OperationID: "createResource",
+			Summary:     "Create a resource",
+			RequestBody: &openapi3.RequestBodyRef{
+				Value: &openapi3.RequestBody{
+					Content: map[string]*openapi3.MediaType{
+						"application/json": {
+							Schema: &openapi3.SchemaRef{
+								Value: &openapi3.Schema{
+									Type: &openapi3.Types{"object"},
+									Properties: map[string]*openapi3.SchemaRef{
+										"name": {
+											Value: &openapi3.Schema{
+												Type: &openapi3.Types{"string"},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Create an enriched tool
+	tool := &EnrichedTool{
+		Tool: &mcp.Tool{
+			Name:        "createResource",
+			Description: "Create a resource",
+			InputSchema: nil,
+		},
+		BaseUrl:   mockServer.URL,
+		Method:    "post",
+		Path:      "/resources",
+		Operation: operation,
+	}
+
+	// Test with additional headers and request body
+	additionalHeaders := http.Header{
+		"Authorization": []string{"Bearer secret-token"},
+		"X-Request-Id":  []string{"req-12345"},
+	}
+
+	handler := createAPIHandlerForTool(tool, additionalHeaders)
+
+	input := APIToolInput{
+		"name": "Test Resource",
+	}
+
+	_, output, err := handler(context.Background(), nil, input)
+
+	if err != nil {
+		t.Fatalf("Handler execution failed: %v", err)
+	}
+
+	if output.Error != "" {
+		t.Fatalf("Handler returned error: %s", output.Error)
+	}
+
+	if output.StatusCode != http.StatusOK {
+		t.Fatalf("Expected status code 200, got %d", output.StatusCode)
+	}
+
+	// Verify additional headers are present
+	if receivedHeaders.Get("Authorization") != "Bearer secret-token" {
+		t.Errorf("Authorization header: expected 'Bearer secret-token', got '%s'", receivedHeaders.Get("Authorization"))
+	}
+
+	if receivedHeaders.Get("X-Request-Id") != "req-12345" {
+		t.Errorf("X-Request-Id header: expected 'req-12345', got '%s'", receivedHeaders.Get("X-Request-Id"))
+	}
+
+	// Verify Content-Type is set for request body
+	if receivedHeaders.Get("Content-Type") != "application/json" {
+		t.Errorf("Content-Type header: expected 'application/json', got '%s'", receivedHeaders.Get("Content-Type"))
+	}
+
+	t.Logf("✓ Additional headers with request body test passed")
+}
+
 func TestPathParametersOpenAPI2(t *testing.T) {
 	// Create a mock server for OpenAPI 2.0 path parameter testing
 	requestLog := make([]string, 0)
@@ -931,7 +1164,7 @@ func TestPathParametersOpenAPI2(t *testing.T) {
 	tmpFile.Close()
 
 	// Load spec and verify it's OpenAPI 2.0
-	spec, err := openapi.LoadSpec(tmpFile.Name())
+	spec, err := openapi.LoadSpecFromSource(tmpFile.Name())
 	if err != nil {
 		t.Fatalf("Failed to load spec: %v", err)
 	}

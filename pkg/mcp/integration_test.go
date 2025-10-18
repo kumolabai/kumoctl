@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kumolabai/kumoctl/pkg/openapi"
 	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/kumolabai/kumoctl/pkg/openapi"
 )
 
 // MCPTool represents a tool for testing purposes
@@ -81,16 +81,16 @@ func createAPIToolHandler(method, baseURL, path string, operation openapi.Operat
 		var requestBody *bytes.Buffer
 		if requestBodyData := operation.GetRequestBody(); requestBodyData != nil {
 			bodyMap := make(map[string]interface{})
-			
+
 			// Get the request body schema
 			schema, err := requestBodyData.GetJSONSchema()
 			if err != nil {
 				return nil, fmt.Errorf("failed to get request body schema: %w", err)
 			}
-			
+
 			if schema != nil {
 				extractFieldsFromSchema(bodyMap, schema, input)
-				
+
 				if len(bodyMap) > 0 {
 					bodyBytes, err := json.Marshal(bodyMap)
 					if err != nil {
@@ -120,7 +120,7 @@ func createAPIToolHandler(method, baseURL, path string, operation openapi.Operat
 		client := &http.Client{
 			Timeout: 30 * time.Second,
 		}
-		
+
 		resp, err := client.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("HTTP request failed: %w", err)
@@ -151,7 +151,7 @@ func TestMCPToolIntegrationWithMockServer(t *testing.T) {
 			// Test query parameters
 			status := r.URL.Query().Get("status")
 			limit := r.URL.Query().Get("limit")
-			
+
 			users := []map[string]interface{}{
 				{
 					"id":     "1",
@@ -160,34 +160,34 @@ func TestMCPToolIntegrationWithMockServer(t *testing.T) {
 					"active": status != "inactive",
 				},
 			}
-			
+
 			if limit == "0" {
 				users = []map[string]interface{}{}
 			}
-			
+
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(users)
-			
+
 		case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/users/"):
 			// Test path parameters
 			userID := strings.TrimPrefix(r.URL.Path, "/users/")
-			
+
 			if userID == "999" {
 				w.WriteHeader(http.StatusNotFound)
 				json.NewEncoder(w).Encode(map[string]string{"error": "User not found"})
 				return
 			}
-			
+
 			user := map[string]interface{}{
 				"id":     userID,
 				"name":   fmt.Sprintf("User %s", userID),
 				"email":  fmt.Sprintf("user%s@example.com", userID),
 				"active": true,
 			}
-			
+
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(user)
-			
+
 		case r.Method == "POST" && r.URL.Path == "/users":
 			// Test request body
 			var requestBody map[string]interface{}
@@ -196,15 +196,15 @@ func TestMCPToolIntegrationWithMockServer(t *testing.T) {
 				json.NewEncoder(w).Encode(map[string]string{"error": "Invalid JSON"})
 				return
 			}
-			
+
 			// Create response with generated ID
 			user := requestBody
 			user["id"] = "123"
-			
+
 			w.WriteHeader(http.StatusCreated)
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(user)
-			
+
 		default:
 			w.WriteHeader(http.StatusNotFound)
 			json.NewEncoder(w).Encode(map[string]string{"error": "Endpoint not found"})
@@ -325,7 +325,7 @@ func TestMCPToolIntegrationWithMockServer(t *testing.T) {
 	tmpFile.Close()
 
 	// Load the OpenAPI spec
-	spec, err := openapi.LoadSpec(tmpFile.Name())
+	spec, err := openapi.LoadSpecFromSource(tmpFile.Name())
 	if err != nil {
 		t.Fatalf("Failed to load OpenAPI spec: %v", err)
 	}
@@ -372,14 +372,14 @@ func TestMCPToolIntegrationWithMockServer(t *testing.T) {
 				if output.StatusCode != 200 {
 					t.Errorf("Expected status code 200, got %d", output.StatusCode)
 				}
-				
+
 				// Body should be an array
 				bodyArray, ok := output.Body.([]interface{})
 				if !ok {
 					t.Errorf("Expected array response, got %T", output.Body)
 					return
 				}
-				
+
 				if len(bodyArray) != 1 {
 					t.Errorf("Expected 1 user, got %d", len(bodyArray))
 				}
@@ -394,14 +394,14 @@ func TestMCPToolIntegrationWithMockServer(t *testing.T) {
 				if output.StatusCode != 200 {
 					t.Errorf("Expected status code 200, got %d", output.StatusCode)
 				}
-				
+
 				// Body should be an object
 				bodyObj, ok := output.Body.(map[string]interface{})
 				if !ok {
 					t.Errorf("Expected object response, got %T", output.Body)
 					return
 				}
-				
+
 				if bodyObj["id"] != "42" {
 					t.Errorf("Expected user ID 42, got %v", bodyObj["id"])
 				}
@@ -416,13 +416,13 @@ func TestMCPToolIntegrationWithMockServer(t *testing.T) {
 				if output.StatusCode != 201 {
 					t.Errorf("Expected status code 201, got %d", output.StatusCode)
 				}
-				
+
 				bodyObj, ok := output.Body.(map[string]interface{})
 				if !ok {
 					t.Errorf("Expected object response, got %T", output.Body)
 					return
 				}
-				
+
 				if bodyObj["name"] != "Alice Smith" {
 					t.Errorf("Expected name 'Alice Smith', got %v", bodyObj["name"])
 				}
@@ -433,7 +433,7 @@ func TestMCPToolIntegrationWithMockServer(t *testing.T) {
 		},
 		{
 			name:         "GET /users with limit=0 (empty array response)",
-			toolName:     "getUsers", 
+			toolName:     "getUsers",
 			input:        APIToolInput{"limit": 0},
 			expectedCode: 200,
 			validate: func(t *testing.T, output *APIToolOutput) {
@@ -442,7 +442,7 @@ func TestMCPToolIntegrationWithMockServer(t *testing.T) {
 					t.Errorf("Expected array response, got %T", output.Body)
 					return
 				}
-				
+
 				if len(bodyArray) != 0 {
 					t.Errorf("Expected empty array, got %d items", len(bodyArray))
 				}
@@ -457,13 +457,13 @@ func TestMCPToolIntegrationWithMockServer(t *testing.T) {
 				if output.StatusCode != 404 {
 					t.Errorf("Expected status code 404, got %d", output.StatusCode)
 				}
-				
+
 				bodyObj, ok := output.Body.(map[string]interface{})
 				if !ok {
 					t.Errorf("Expected object response, got %T", output.Body)
 					return
 				}
-				
+
 				if bodyObj["error"] != "User not found" {
 					t.Errorf("Expected error message, got %v", bodyObj["error"])
 				}
@@ -482,32 +482,32 @@ func TestMCPToolIntegrationWithMockServer(t *testing.T) {
 					break
 				}
 			}
-			
+
 			if targetTool == nil {
 				t.Fatalf("Tool %s not found", tc.toolName)
 			}
-			
+
 			// Execute the tool
 			output, err := targetTool.Handler(tc.input)
 			if err != nil {
 				t.Fatalf("Tool execution failed: %v", err)
 			}
-			
+
 			// Validate the output
 			if output.StatusCode != tc.expectedCode {
 				t.Errorf("Expected status code %d, got %d", tc.expectedCode, output.StatusCode)
 			}
-			
+
 			// Run custom validation
 			if tc.validate != nil {
 				tc.validate(t, output)
 			}
-			
+
 			// Verify response headers
 			if output.Headers["Content-Type"] == "" {
 				t.Error("Expected Content-Type header")
 			}
-			
+
 			t.Logf("Tool %s executed successfully: %d %v", tc.toolName, output.StatusCode, output.Body)
 		})
 	}
@@ -572,7 +572,7 @@ func TestMCPToolErrorHandling(t *testing.T) {
 	tmpFile.Close()
 
 	// Load spec and generate tools
-	spec, err := openapi.LoadSpec(tmpFile.Name())
+	spec, err := openapi.LoadSpecFromSource(tmpFile.Name())
 	if err != nil {
 		t.Fatalf("Failed to load spec: %v", err)
 	}
@@ -594,7 +594,7 @@ func TestMCPToolErrorHandling(t *testing.T) {
 			timeout:  5 * time.Second,
 		},
 		{
-			name:     "Invalid JSON response", 
+			name:     "Invalid JSON response",
 			toolName: "invalidJsonEndpoint",
 			timeout:  5 * time.Second,
 		},

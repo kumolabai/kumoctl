@@ -10,7 +10,7 @@ var rootCmd = &cobra.Command{
 	Use:     "kumoctl",
 	Short:   "A CLI tool for kumolab.ai",
 	Long:    `kumoctl is a command-line interface for interacting with kumolab.ai`,
-	Version: "0.0.1",
+	Version: version,
 }
 
 func Execute() {

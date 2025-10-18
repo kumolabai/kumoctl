@@ -114,7 +114,7 @@ func configureClaudeDesktop(executable, specFile, serverName string) error {
 	configFile := filepath.Join(configDir, "claude_desktop_config.json")
 
 	if err := configureMCPClient(configDir, configFile, executable, specFile, serverName); err != nil {
-		return nil
+		return err
 	}
 
 	fmt.Printf("Successfully configured MCP server '%s' for Claude Desktop\n", serverName)

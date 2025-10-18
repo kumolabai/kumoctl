@@ -37,10 +37,10 @@ func TestMCPToolIntegrationWithOpenAPI2(t *testing.T) {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			
+
 			user := requestBody
 			user["id"] = "456"
-			
+
 			w.WriteHeader(http.StatusCreated)
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(user)
@@ -141,7 +141,7 @@ func TestMCPToolIntegrationWithOpenAPI2(t *testing.T) {
 	tmpFile.Close()
 
 	// Load the OpenAPI 2.0 spec
-	spec, err := openapi.LoadSpec(tmpFile.Name())
+	spec, err := openapi.LoadSpecFromSource(tmpFile.Name())
 	if err != nil {
 		t.Fatalf("Failed to load OpenAPI 2.0 spec: %v", err)
 	}

@@ -3,7 +3,9 @@ package cmd
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"strings"
 
 	kumo_mcp "github.com/kumolabai/kumoctl/pkg/mcp"
 	"github.com/kumolabai/kumoctl/pkg/openapi"
@@ -12,28 +14,23 @@ import (
 )
 
 var serveCmd = &cobra.Command{
-	Use:   "serve",
-	Short: "Start MCP Server from OpenAPI Spec",
-	Args: func(cmd *cobra.Command, args []string) error {
-		if err := cobra.ExactArgs(1)(cmd, args); err != nil {
-			return err
-		}
-
-		filePath := args[0]
-		if _, err := os.Stat(filePath); os.IsNotExist(err) {
-			return fmt.Errorf("file does not exist: %s", filePath)
-		}
-
-		if _, err := openapi.LoadSpec(filePath); err != nil {
-			return err
-		}
-
-		return nil
-	},
+	Use:     "serve [spec-path-or-url]",
+	Short:   "Start MCP Server from OpenAPI Spec",
+	Example: "  kumoctl serve ./spec.json --headers \"Authorization=Basic <creds>\"\n  kumoctl serve https://api.example.com/openapi.json --headers \"Authorization=Bearer token\"",
+	Args:    verifySpecSource,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		source := args[0]
+		openapiSpec, err := openapi.LoadSpecFromSource(source)
+		if err != nil {
+			return err
+		}
 
-		filePath := args[0]
-		openapiSpec, err := openapi.LoadSpec(filePath)
+		headers, err := cmd.Flags().GetStringArray("headers")
+		if err != nil {
+			return err
+		}
+
+		parsedHeaders, err := parseHeaders(headers)
 		if err != nil {
 			return err
 		}
@@ -53,7 +50,7 @@ var serveCmd = &cobra.Command{
 		server := mcp.NewServer(&mcp.Implementation{Name: serverName, Title: serverTitle, Version: version}, nil)
 
 		// Dynamically generate tools from OpenAPI paths
-		if err := kumo_mcp.GenerateToolsFromSpec(server, openapiSpec); err != nil {
+		if err := kumo_mcp.GenerateToolsFromSpec(server, openapiSpec, parsedHeaders); err != nil {
 			return fmt.Errorf("failed to generate tools from OpenAPI spec: %w", err)
 		}
 
@@ -66,6 +63,42 @@ var serveCmd = &cobra.Command{
 	},
 }
 
+func parseHeaders(headerStrings []string) (http.Header, error) {
+	headers := make(http.Header)
+	for _, h := range headerStrings {
+		parts := strings.SplitN(h, "=", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid header format: %s (expected 'key=value')", h)
+		}
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		headers.Add(key, value)
+	}
+	return headers, nil
+}
+
+func verifySpecSource(cmd *cobra.Command, args []string) error {
+	if err := cobra.ExactArgs(1)(cmd, args); err != nil {
+		return err
+	}
+
+	source := args[0]
+
+	// Only validate file existence if it's not a URL
+	if !strings.HasPrefix(source, "http://") && !strings.HasPrefix(source, "https://") {
+		if _, err := os.Stat(source); os.IsNotExist(err) {
+			return fmt.Errorf("file does not exist: %s", source)
+		}
+	}
+
+	if _, err := openapi.LoadSpecFromSource(source); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func init() {
+	serveCmd.Flags().StringArray("headers", []string{}, "headers to inject on requests in the form of key=value")
 	rootCmd.AddCommand(serveCmd)
 }
