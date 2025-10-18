@@ -36,8 +36,8 @@ kumoctl configure --client=cursor examples/openapi2-example.json my-tools
 ### Manual Usage
 
 ```bash
-# Serve MCP from an OpenAPI spec file
-kumoctl serve <path-to-openapi-spec>
+# Serve MCP from an OpenAPI spec file or URL
+kumoctl serve <path-or-url-to-openapi-spec>
 
 # Examples
 kumoctl serve ./examples/openapi2-example.json
@@ -70,7 +70,7 @@ kumoctl serve <path-to-openapi-spec>
 Automatically configures kumoctl as an MCP server in your LLM client. This eliminates the need for manual JSON configuration.
 
 ```bash
-kumoctl configure [OPTIONS] <spec-file> <server-name>
+kumoctl configure [OPTIONS] <spec-file-or-url> <server-name>
 ```
 
 **Options:**

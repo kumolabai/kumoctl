@@ -3,6 +3,8 @@ package openapi
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"strings"
 
@@ -61,11 +63,42 @@ type Schema interface {
 	GetDefault() interface{}
 }
 
-func LoadSpec(filePath string) (APISpec, error) {
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %w", err)
+// LoadSpecFromSource loads an OpenAPI spec from either a file path or URL
+func LoadSpecFromSource(source string) (APISpec, error) {
+	var data []byte
+	var err error
+
+	// Check if source is a URL
+	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
+		data, err = fetchFromURL(source)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch from URL: %w", err)
+		}
+	} else {
+		data, err = os.ReadFile(source)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read file: %w", err)
+		}
 	}
+
+	return parseSpec(data)
+}
+
+func fetchFromURL(url string) ([]byte, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP request failed with status: %d", resp.StatusCode)
+	}
+
+	return io.ReadAll(resp.Body)
+}
+
+func parseSpec(data []byte) (APISpec, error) {
 
 	// Try OpenAPI 3.0 first
 	loader := openapi3.NewLoader()
@@ -90,8 +123,8 @@ func LoadSpec(filePath string) (APISpec, error) {
 	}
 
 	// Convert YAML data to JSON
-	var jsonData []byte
-	if jsonData, err = json.Marshal(yamlData); err != nil {
+	jsonData, err := json.Marshal(yamlData)
+	if err != nil {
 		return nil, fmt.Errorf("unsupported or invalid OpenAPI specification")
 	}
 

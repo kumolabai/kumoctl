@@ -26,7 +26,23 @@ type APIToolOutput struct {
 	Error      string            `json:"error,omitempty"`
 }
 
-func GenerateToolsFromSpec(server *mcp.Server, spec openapi.APISpec) error {
+func GenerateToolsFromSpec(server *mcp.Server, spec openapi.APISpec, additionalHeaders http.Header) error {
+	tools, err := GetToolsFromSpec(spec)
+	if err != nil {
+		return err
+	}
+
+	for _, tool := range tools {
+		// Create the handler function for this specific operation
+		handler := createAPIHandlerForTool(tool, additionalHeaders)
+		mcp.AddTool(server, tool.Tool, handler)
+	}
+
+	return nil
+}
+
+func GetToolsFromSpec(spec openapi.APISpec) ([]*EnrichedTool, error) {
+	tools := []*EnrichedTool{}
 	baseURL := spec.GetBaseURL()
 
 	for path, pathItem := range spec.GetPaths() {
@@ -44,27 +60,25 @@ func GenerateToolsFromSpec(server *mcp.Server, spec openapi.APISpec) error {
 			// Generate input schema for this tool
 			inputSchema, err := openapi.GenerateInputSchema(operation)
 			if err != nil {
-				return fmt.Errorf("failed to generate input schema for %s %s: %w", method, path, err)
+				return nil, fmt.Errorf("failed to generate input schema for %s %s: %w", method, path, err)
 			}
 
-			fmt.Println(toolName)
-			j, _ := inputSchema.MarshalJSON()
-			fmt.Printf("%s\n\n", j)
+			tools = append(tools, &EnrichedTool{
+				Tool: &mcp.Tool{
+					Name:        toolName,
+					Description: description,
+					InputSchema: inputSchema,
+				},
+				BaseUrl:   baseURL,
+				Method:    method,
+				Path:      path,
+				Operation: operation,
+			})
 
-			tool := &mcp.Tool{
-				Name:        toolName,
-				Description: description,
-				InputSchema: inputSchema,
-			}
-
-			// Create the handler function for this specific operation
-			handler := createAPIHandler(baseURL, method, path, operation)
-
-			mcp.AddTool(server, tool, handler)
 		}
 	}
 
-	return nil
+	return tools, nil
 }
 
 func generateToolName(method, path string, operationID string) string {
@@ -152,7 +166,7 @@ func buildRequestBody(operation openapi.Operation, input APIToolInput) ([]byte, 
 }
 
 // setHeaders sets HTTP headers based on operation parameters and defaults
-func setHeaders(req *http.Request, operation openapi.Operation, input APIToolInput) error {
+func setHeaders(req *http.Request, operation openapi.Operation, input APIToolInput, additionalHeaders http.Header) error {
 	// Set default content type for requests with body
 	if hasRequestBody(operation) {
 		req.Header.Set("Content-Type", "application/json")
@@ -165,6 +179,10 @@ func setHeaders(req *http.Request, operation openapi.Operation, input APIToolInp
 				req.Header.Set(param.GetName(), fmt.Sprintf("%v", value))
 			}
 		}
+	}
+
+	for headerKey := range additionalHeaders {
+		req.Header.Add(headerKey, additionalHeaders.Get(headerKey))
 	}
 
 	return nil
@@ -215,36 +233,36 @@ func extractFieldsFromSchema(target map[string]interface{}, schema openapi.Schem
 }
 
 // createAPIHandler creates a handler function for a specific API operation
-func createAPIHandler(baseURL, method, path string, operation openapi.Operation) func(context.Context, *mcp.CallToolRequest, APIToolInput) (*mcp.CallToolResult, APIToolOutput, error) {
+func createAPIHandlerForTool(tool *EnrichedTool, additionalHeaders http.Header) func(context.Context, *mcp.CallToolRequest, APIToolInput) (*mcp.CallToolResult, APIToolOutput, error) {
 	return func(ctx context.Context, req *mcp.CallToolRequest, input APIToolInput) (*mcp.CallToolResult, APIToolOutput, error) {
 		// Build the full URL with path parameters
-		fullURL, err := buildURL(baseURL, path, input)
+		fullURL, err := buildURL(tool.BaseUrl, tool.Path, input)
 		if err != nil {
 			return nil, APIToolOutput{Error: fmt.Sprintf("Failed to build URL: %v", err)}, nil
 		}
 
 		// Add query parameters
-		if err := addQueryParams(fullURL, operation, input); err != nil {
+		if err := addQueryParams(fullURL, tool.Operation, input); err != nil {
 			return nil, APIToolOutput{Error: fmt.Sprintf("Failed to add query params: %v", err)}, nil
 		}
 
 		// Create HTTP request
-		var bodyReader *bytes.Reader = nil
-		if hasRequestBody(operation) {
-			body, err := buildRequestBody(operation, input)
+		bodyReader := &bytes.Reader{}
+		if hasRequestBody(tool.Operation) {
+			body, err := buildRequestBody(tool.Operation, input)
 			if err != nil {
 				return nil, APIToolOutput{Error: fmt.Sprintf("Failed to build request body: %v", err)}, nil
 			}
 			bodyReader = bytes.NewReader(body)
 		}
 
-		httpReq, err := http.NewRequestWithContext(ctx, strings.ToUpper(method), fullURL.String(), bodyReader)
+		httpReq, err := http.NewRequestWithContext(ctx, strings.ToUpper(tool.Method), fullURL.String(), bodyReader)
 		if err != nil {
 			return nil, APIToolOutput{Error: fmt.Sprintf("Failed to create request: %v", err)}, nil
 		}
 
 		// Set headers
-		if err := setHeaders(httpReq, operation, input); err != nil {
+		if err := setHeaders(httpReq, tool.Operation, input, additionalHeaders); err != nil {
 			return nil, APIToolOutput{Error: fmt.Sprintf("Failed to set headers: %v", err)}, nil
 		}
 

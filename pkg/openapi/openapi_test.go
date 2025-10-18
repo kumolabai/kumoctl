@@ -120,7 +120,7 @@ func TestLoadSpecV2AndV3(t *testing.T) {
 				t.Fatalf("Failed to write test file: %v", err)
 			}
 
-			spec, err := LoadSpec(tmpFile)
+			spec, err := LoadSpecFromSource(tmpFile)
 
 			if tt.hasError {
 				if err == nil {
@@ -185,7 +185,7 @@ func TestGetBaseURLVersions(t *testing.T) {
 				t.Fatalf("Failed to write test file: %v", err)
 			}
 
-			spec, err := LoadSpec(tmpFile)
+			spec, err := LoadSpecFromSource(tmpFile)
 			if err != nil {
 				t.Fatalf("Failed to load spec: %v", err)
 			}
@@ -292,7 +292,7 @@ func TestPathLevelParameterSchemaGeneration(t *testing.T) {
 		tmpFile.Close()
 
 		// Load spec
-		spec, err := LoadSpec(tmpFile.Name())
+		spec, err := LoadSpecFromSource(tmpFile.Name())
 		if err != nil {
 			t.Fatalf("Failed to load spec: %v", err)
 		}
@@ -442,7 +442,7 @@ func TestPathLevelParameterSchemaGeneration(t *testing.T) {
 		tmpFile.Close()
 
 		// Load spec
-		spec, err := LoadSpec(tmpFile.Name())
+		spec, err := LoadSpecFromSource(tmpFile.Name())
 		if err != nil {
 			t.Fatalf("Failed to load spec: %v", err)
 		}
@@ -577,7 +577,7 @@ func TestParameterMerging(t *testing.T) {
 		tmpFile.Close()
 
 		// Load spec
-		spec, err := LoadSpec(tmpFile.Name())
+		spec, err := LoadSpecFromSource(tmpFile.Name())
 		if err != nil {
 			t.Fatalf("Failed to load spec: %v", err)
 		}
@@ -681,7 +681,7 @@ func TestSchemaJSONMarshaling(t *testing.T) {
 		tmpFile.WriteString(openAPI3Spec)
 		tmpFile.Close()
 
-		spec, err := LoadSpec(tmpFile.Name())
+		spec, err := LoadSpecFromSource(tmpFile.Name())
 		if err != nil {
 			t.Fatalf("Failed to load spec: %v", err)
 		}
