@@ -81,7 +81,7 @@ func LoadSpecFromSource(source string) (APISpec, error) {
 		}
 	}
 
-	return parseSpec(data)
+	return LoadSpec(data)
 }
 
 func fetchFromURL(url string) ([]byte, error) {
@@ -98,7 +98,7 @@ func fetchFromURL(url string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-func parseSpec(data []byte) (APISpec, error) {
+func LoadSpec(data []byte) (APISpec, error) {
 
 	// Try OpenAPI 3.0 first
 	loader := openapi3.NewLoader()
