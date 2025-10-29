@@ -16,7 +16,7 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -s -w -X cmd.version={{.Version}} -X cmd.commit={{.Commit}} -X cmd.date={{.Date}}
+      - -s -w -X github.com/kumolabai/kumoctl/cmd.version={{.Version}} -X github.com/kumolabai/kumoctl/cmd.commit={{.Commit}} -X github.com/kumolabai/kumoctl/cmd.date={{.Date}}
 
 archives:
   - id: kumoctl

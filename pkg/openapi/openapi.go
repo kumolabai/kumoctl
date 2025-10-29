@@ -102,6 +102,8 @@ func LoadSpec(data []byte) (APISpec, error) {
 
 	// Try OpenAPI 3.0 first
 	loader := openapi3.NewLoader()
+	loader.IsExternalRefsAllowed = true
+
 	if spec, err := loader.LoadFromData(data); err == nil {
 		if err := spec.Validate(loader.Context); err == nil {
 			return &OpenAPI3Spec{spec: spec}, nil

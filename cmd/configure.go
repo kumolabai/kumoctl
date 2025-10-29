@@ -23,7 +23,7 @@ type MCPClientConfig struct {
 }
 
 var configureCmd = &cobra.Command{
-	Use:   "configure [spec-file] [server-name]",
+	Use:   "configure [spec-path-or-url] [server-name]",
 	Short: "Generate MCP server configuration for LLM clients",
 	Long: `Generate and optionally install MCP server configuration for various LLM clients.
 This command helps you automatically configure kumoctl as an MCP server in your LLM client.
@@ -35,6 +35,12 @@ Supported clients:
 Examples:
   # Generate configuration for Claude Desktop
   kumoctl configure examples/openapi2-example.json my-api
+
+  # Generate configuration from URL
+  kumoctl configure https://api.example.com/openapi.json my-api
+
+  # Add custom headers
+  kumoctl configure examples/openapi.json my-api --headers "Authorization=Bearer token" --headers "X-Api-Key=key123"
 
   # Generate configuration without installing
   kumoctl configure --dry-run examples/openapi3-example.yaml weather-api
@@ -55,21 +61,38 @@ func init() {
 
 	configureCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Print configuration without installing")
 	configureCmd.Flags().StringVar(&client, "client", "claude-desktop", "Target LLM client (claude-desktop, cursor)")
+	configureCmd.Flags().StringArray("headers", []string{}, "Headers to inject on requests in the form of key=value")
 }
 
 func runConfigure(cmd *cobra.Command, args []string) error {
-	specFile := args[0]
+	specSource := args[0]
 	serverName := args[1]
 
-	// Validate spec file exists
-	if _, err := os.Stat(specFile); os.IsNotExist(err) {
-		return fmt.Errorf("spec file does not exist: %s", specFile)
+	// Get headers flag
+	headers, err := cmd.Flags().GetStringArray("headers")
+	if err != nil {
+		return err
 	}
 
-	// Get absolute path to spec file
-	absSpecFile, err := filepath.Abs(specFile)
-	if err != nil {
-		return fmt.Errorf("failed to get absolute path for spec file: %w", err)
+	// Check if source is a URL or file path
+	isURL := strings.HasPrefix(specSource, "http://") || strings.HasPrefix(specSource, "https://")
+
+	var specPath string
+	if isURL {
+		// For URLs, we'll pass the URL directly
+		specPath = specSource
+	} else {
+		// Validate spec file exists
+		if _, err := os.Stat(specSource); os.IsNotExist(err) {
+			return fmt.Errorf("spec file does not exist: %s", specSource)
+		}
+
+		// Get absolute path to spec file
+		absSpecFile, err := filepath.Abs(specSource)
+		if err != nil {
+			return fmt.Errorf("failed to get absolute path for spec file: %w", err)
+		}
+		specPath = absSpecFile
 	}
 
 	// Get kumoctl executable path
@@ -81,9 +104,9 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 	// Generate configuration based on client
 	switch strings.ToLower(client) {
 	case "claude-desktop":
-		return configureClaudeDesktop(executable, absSpecFile, serverName)
+		return configureClaudeDesktop(executable, specPath, serverName, headers)
 	case "cursor":
-		return configureCursor(executable, absSpecFile, serverName)
+		return configureCursor(executable, specPath, serverName, headers)
 	default:
 		return fmt.Errorf("unsupported client: %s", client)
 	}
@@ -109,11 +132,11 @@ func getKumoctlPath() (string, error) {
 	return executable, nil
 }
 
-func configureClaudeDesktop(executable, specFile, serverName string) error {
+func configureClaudeDesktop(executable, specFile, serverName string, headers []string) error {
 	configDir := getClaudeDesktopConfigDir()
 	configFile := filepath.Join(configDir, "claude_desktop_config.json")
 
-	if err := configureMCPClient(configDir, configFile, executable, specFile, serverName); err != nil {
+	if err := configureMCPClient(configDir, configFile, executable, specFile, serverName, headers); err != nil {
 		return err
 	}
 
@@ -123,13 +146,13 @@ func configureClaudeDesktop(executable, specFile, serverName string) error {
 	return nil
 }
 
-func configureCursor(executable, specFile, serverName string) error {
+func configureCursor(executable, specFile, serverName string, headers []string) error {
 	// Cursor uses a similar configuration format to Claude Desktop
 	// but in a different location
 	configDir := getCursorConfigDir()
 	configFile := filepath.Join(configDir, "mcp_config.json")
 
-	if err := configureMCPClient(configDir, configFile, executable, specFile, serverName); err != nil {
+	if err := configureMCPClient(configDir, configFile, executable, specFile, serverName, headers); err != nil {
 		return nil
 	}
 
@@ -175,7 +198,7 @@ func getCursorConfigDir() string {
 	}
 }
 
-func getMCPClientConfig(configFile string, executable string, specFile string, serverName string) (*MCPClientConfig, error) {
+func getMCPClientConfig(configFile string, executable string, specFile string, serverName string, headers []string) (*MCPClientConfig, error) {
 	// Read existing configuration
 	var config MCPClientConfig
 	if data, err := os.ReadFile(configFile); err == nil {
@@ -190,9 +213,16 @@ func getMCPClientConfig(configFile string, executable string, specFile string, s
 	}
 
 	// Create the server configuration
+	args := []string{"serve", specFile}
+
+	// Add headers if provided
+	for _, header := range headers {
+		args = append(args, "--headers", header)
+	}
+
 	serverConfig := MCPServerConfig{
 		Command: executable,
-		Args:    []string{"serve", specFile},
+		Args:    args,
 	}
 
 	// Add or update the server
@@ -201,13 +231,13 @@ func getMCPClientConfig(configFile string, executable string, specFile string, s
 	return &config, nil
 }
 
-func configureMCPClient(configDir string, configFile string, executable string, specFile string, serverName string) error {
+func configureMCPClient(configDir string, configFile string, executable string, specFile string, serverName string, headers []string) error {
 	// Create config directory if it doesn't exist
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
-	config, err := getMCPClientConfig(configFile, executable, specFile, serverName)
+	config, err := getMCPClientConfig(configFile, executable, specFile, serverName, headers)
 	if err != nil {
 		return err
 	}
